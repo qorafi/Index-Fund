@@ -632,10 +632,10 @@ npm run coverage
 
 ### **🔗 Quick Links**
 
-- **📖 Documentation**: [docs.clif.finance](https://docs.qurafi.com)
-- **🌐 Website**: [clif.finance](https://qurafi.com)
-- **📱 App**: [app.clif.finance](https://qurafi.com)
-- **📊 Analytics**: [analytics.clif.finance](https://qurafi.com)
+- **📖 Documentation**: [docs.qorafi.com](https://docs.qurafi.com)
+- **🌐 Website**: [QoraFi.com](https://qurafi.com)
+- **📱 App**: [QoraFi.com](https://qurafi.com)
+- **📊 Analytics**: [QoraFi.com](https://qurafi.com)
 
 ### **💬 Community**
 
