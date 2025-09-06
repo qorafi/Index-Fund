@@ -624,24 +624,24 @@ npm run coverage
 
 ### **🔗 Quick Links**
 
-- **📖 Documentation**: [docs.clif.finance](https://docs.clif.finance)
-- **🌐 Website**: [clif.finance](https://clif.finance)
-- **📱 App**: [app.clif.finance](https://app.clif.finance)
-- **📊 Analytics**: [analytics.clif.finance](https://analytics.clif.finance)
+- **📖 Documentation**: [docs.clif.finance](https://docs.qurafi.com)
+- **🌐 Website**: [clif.finance](https://qurafi.com)
+- **📱 App**: [app.clif.finance](https://qurafi.com)
+- **📊 Analytics**: [analytics.clif.finance](https://qurafi.com)
 
 ### **💬 Community**
 
-- **Discord**: [discord.gg/clif](https://discord.gg/clif)
-- **Twitter**: [@CLIFprotocol](https://twitter.com/CLIFprotocol)
-- **Telegram**: [t.me/CLIFprotocol](https://t.me/CLIFprotocol)
-- **GitHub**: [github.com/clif-protocol](https://github.com/clif-protocol)
+- **Reddit**: [reddit.com/r/qorafi](https://www.reddit.com/r/QoraFi/)
+- **Twitter**: [@qoradefi](https://twitter.com/qoradefi)
+- **Linkedin**: [linkedin.com/company/qorafi](https://www.linkedin.com/company/qorafi/)
+- **GitHub**: [github.com/qorafi](https://github.com/qorafi)
 
 ### **📧 Business Inquiries**
 
-- **Partnerships**: partnerships@clif.finance
-- **Press**: press@clif.finance
-- **Support**: support@clif.finance
-- **Security**: security@clif.finance
+- **Partnerships**: partnerships@qurafi.com
+- **Press**: press@qurafi.com
+- **Support**: support@qurafi.com
+- **Security**: security@qurafi.com
 
 ---
 
@@ -649,11 +649,11 @@ npm run coverage
 
 ### **🚀 Ready to revolutionize your crypto portfolio?**
 
-**[Start Investing Now](https://app.clif.finance) | [Read the Docs](https://docs.clif.finance) | [Join Discord](https://discord.gg/clif)**
+**[Start Investing Now](https://qurafi.com) | [Read the Docs](https://docs.qurafi.com) | [Join Twitter](https://twitter.com/qoradefi)**
 
 ---
 
-**Built with ❤️ by the CLIF Team | © 2024 CLIF Protocol | All rights reserved**
+**Built with ❤️ by the QoraFi Team | © 2025 QORAFI Protocol | All rights reserved**
 
 *This project is open-source under MIT License*
 
