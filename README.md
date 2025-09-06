@@ -2,7 +2,8 @@
 
 <p align="center">
 
-![index-fund](https://github.com/user-attachments/assets/197fcfcd-fff2-492e-ae17-f27536b31dd4)
+
+<img width="1024" height="1024" alt="Qorafi_IndexfUND" src="https://github.com/user-attachments/assets/6b1c28e7-101b-40cd-9f24-b1d5dd034782" />
 
 
 </p>
