@@ -3,7 +3,10 @@
 ## *The Next Generation of Decentralized Investment Management*
 
 <p align="center">
-[Untitled design](https://github.com/user-attachments/assets/d0fa8496-768c-4cd1-809a-c31c08a480af)
+    
+![index-fund](https://github.com/user-attachments/assets/e12fd892-131c-4547-9057-1a22be75979c)
+
+
 </p>
 
 
