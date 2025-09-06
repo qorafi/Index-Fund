@@ -1,8 +1,9 @@
 # 🚀 **Crypto Liquidity Index Fund (CLIF)**
 
 ## *The Next Generation of Decentralized Investment Management*
+
 <p align="center">
-![Untitled design](https://github.com/user-attachments/assets/d0fa8496-768c-4cd1-809a-c31c08a480af)
+[Untitled design](https://github.com/user-attachments/assets/d0fa8496-768c-4cd1-809a-c31c08a480af)
 </p>
 
 
