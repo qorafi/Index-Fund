@@ -4,318 +4,428 @@ pragma solidity ^0.8.24;
 import "./interfaces.sol";
 
 // ============================================================================
-// MAIN INDEX FUND CONTRACT
+// MULTI-TIER INDEX FUND SYSTEM
 // ============================================================================
 
-contract CryptoIndexFund is IIndexFund {
+contract MultiTierIndexFund {
     using MathUtils for uint256;
-    using ArrayUtils for uint256[];
     
-    // State variables
-    string public name = "Crypto Liquidity Index Fund";
-    string public symbol = "CLIF";
+    // Tier definitions
+    enum IndexTier { CONSERVATIVE_10, BALANCED_100, AGGRESSIVE_300 }
     
-    address public owner;
-    address public treasury;
-    address public autoManager;
+    struct TierConfig {
+        string name;
+        string description;
+        uint256 tokenCount;
+        uint256 minLiquidity;        // Minimum liquidity requirement
+        uint256 managementFee;       // Annual fee in basis points
+        uint256 minDeposit;          // Minimum deposit amount
+        uint256 riskLevel;           // 1-10 risk scale
+        bool isActive;
+    }
     
-    // Fund composition
-    TokenInfo[] public indexTokens;
-    mapping(address => uint256) public tokenIndex;
-    mapping(address => bool) public isIndexToken;
+    struct UserPosition {
+        IndexTier tier;
+        uint256 shares;
+        uint256 lastDeposit;
+        uint256 totalDeposited;
+    }
     
-    // Share tracking
-    uint256 public totalShares;
-    mapping(address => uint256) public shares;
+    // Tier configurations
+    mapping(IndexTier => TierConfig) public tierConfigs;
+    mapping(IndexTier => address[]) public tierTokens;
+    mapping(IndexTier => mapping(address => uint256)) public tierAllocations;
     
-    // External contracts
-    IAggregator public immutable aggregator;
-    IDEXRouter public immutable router;
-    address public constant STABLE_COIN = Constants.USDC;
-    
-    // Fund settings
-    uint256 public currentHedgeLevel = 0;
-    uint256 public minDeposit = 100 * 1e6; // 100 USDC minimum
-    bool public emergencyPaused = false;
+    // User positions per tier
+    mapping(address => mapping(IndexTier => UserPosition)) public userPositions;
+    mapping(IndexTier => uint256) public totalShares;
+    mapping(IndexTier => uint256) public totalAssets;
     
     // Events
-    event Deposit(address indexed user, uint256 usdcValue, uint256 shares, uint256 unitPrice);
-    event Withdraw(address indexed user, uint256 shares, uint256 value);
-    event TokenAdded(address indexed token, uint256 allocation);
-    event HedgeAdjusted(uint256 oldLevel, uint256 newLevel);
+    event TierDeposit(address indexed user, IndexTier tier, uint256 amount, uint256 shares);
+    event TierWithdraw(address indexed user, IndexTier tier, uint256 shares, uint256 amount);
+    event TierRebalanced(IndexTier tier, address[] newTokens, uint256[] newAllocations);
+    event TierConfigUpdated(IndexTier tier, TierConfig config);
     
-    // Modifiers
-    modifier onlyOwner() {
-        require(msg.sender == owner, "Not owner");
-        _;
+    constructor() {
+        _initializeTiers();
     }
     
-    modifier onlyAutoManager() {
-        require(msg.sender == autoManager, "Not auto manager");
-        _;
-    }
-    
-    modifier whenNotPaused() {
-        if(emergencyPaused) revert EmergencyPaused();
-        _;
-    }
-    
-    constructor(
-        address _aggregator,
-        address _router,
-        address _treasury,
-        address[] memory _initialTokens,
-        uint256[] memory _initialAllocations
-    ) {
-        owner = msg.sender;
-        treasury = _treasury;
-        aggregator = IAggregator(_aggregator);
-        router = IDEXRouter(_router);
+    function _initializeTiers() internal {
+        // CONSERVATIVE TIER - Top 10
+        tierConfigs[IndexTier.CONSERVATIVE_10] = TierConfig({
+            name: "CLIF Conservative",
+            description: "Top 10 blue-chip crypto assets with maximum stability",
+            tokenCount: 10,
+            minLiquidity: 100_000_000 * 1e6,  // $100M minimum liquidity
+            managementFee: 50,                 // 0.5% annual fee
+            minDeposit: 100 * 1e6,            // $100 minimum
+            riskLevel: 3,                      // Low risk
+            isActive: true
+        });
         
-        _initializeTokens(_initialTokens, _initialAllocations);
+        // BALANCED TIER - Top 100  
+        tierConfigs[IndexTier.BALANCED_100] = TierConfig({
+            name: "CLIF Balanced",
+            description: "Top 100 tokens balancing growth and stability",
+            tokenCount: 100,
+            minLiquidity: 10_000_000 * 1e6,   // $10M minimum liquidity
+            managementFee: 75,                 // 0.75% annual fee
+            minDeposit: 250 * 1e6,            // $250 minimum
+            riskLevel: 6,                      // Medium risk
+            isActive: true
+        });
+        
+        // AGGRESSIVE TIER - Top 300
+        tierConfigs[IndexTier.AGGRESSIVE_300] = TierConfig({
+            name: "CLIF Aggressive", 
+            description: "Top 300 tokens for maximum diversification and growth",
+            tokenCount: 300,
+            minLiquidity: 1_000_000 * 1e6,    // $1M minimum liquidity
+            managementFee: 100,                // 1% annual fee
+            minDeposit: 500 * 1e6,             // $500 minimum
+            riskLevel: 9,                      // High risk
+            isActive: true
+        });
     }
     
     // ============================================================================
-    // CORE FUND FUNCTIONS
+    // USER INVESTMENT FUNCTIONS
     // ============================================================================
     
-    function deposit(address inputToken, uint256 amount) external override whenNotPaused {
-        require(amount > 0, "Zero amount");
+    function depositToTier(
+        IndexTier tier,
+        address inputToken,
+        uint256 amount
+    ) external {
+        require(tierConfigs[tier].isActive, "Tier not active");
+        require(amount >= tierConfigs[tier].minDeposit, "Below minimum deposit");
         
-        // Convert input token to USDC value
+        // Convert input to USDC value
         uint256 usdcValue = _convertToUSDC(inputToken, amount);
-        require(usdcValue >= minDeposit, "Below minimum deposit");
         
-        // Calculate shares to mint
-        uint256 currentPrice = getUnitPrice();
-        uint256 sharesToMint = (usdcValue * 1e18) / currentPrice;
+        // Calculate shares based on tier NAV
+        uint256 shares = _calculateShares(tier, usdcValue);
         
-        // Transfer tokens from user
-        IERC20(inputToken).transferFrom(msg.sender, address(this), amount);
+        // Execute investment according to tier strategy
+        _executeInvestment(tier, usdcValue);
         
-        // Execute index purchase
-        executeIndexPurchase(usdcValue);
+        // Update user position
+        UserPosition storage position = userPositions[msg.sender][tier];
+        position.tier = tier;
+        position.shares += shares;
+        position.lastDeposit = block.timestamp;
+        position.totalDeposited += usdcValue;
         
-        // Mint shares to user
-        shares[msg.sender] += sharesToMint;
-        totalShares += sharesToMint;
+        // Update tier totals
+        totalShares[tier] += shares;
+        totalAssets[tier] += usdcValue;
         
-        emit Deposit(msg.sender, usdcValue, sharesToMint, currentPrice);
+        emit TierDeposit(msg.sender, tier, usdcValue, shares);
     }
     
-    function withdraw(uint256 sharesToBurn) external override whenNotPaused {
-        require(shares[msg.sender] >= sharesToBurn, "Insufficient shares");
-        require(sharesToBurn > 0, "Zero shares");
+    function withdrawFromTier(
+        IndexTier tier,
+        uint256 sharesToBurn
+    ) external {
+        UserPosition storage position = userPositions[msg.sender][tier];
+        require(position.shares >= sharesToBurn, "Insufficient shares");
         
-        uint256 sharePercentage = (sharesToBurn * 1e18) / totalShares;
+        // Calculate withdrawal value
+        uint256 withdrawalValue = _calculateWithdrawalValue(tier, sharesToBurn);
         
-        // Transfer proportional tokens to user
-        for(uint256 i = 0; i < indexTokens.length; i++) {
-            if(indexTokens[i].isActive) {
-                uint256 tokenBalance = IERC20(indexTokens[i].token).balanceOf(address(this));
-                uint256 tokenAmount = (tokenBalance * sharePercentage) / 1e18;
-                
-                if(tokenAmount > 0) {
-                    IERC20(indexTokens[i].token).transfer(msg.sender, tokenAmount);
-                }
+        // Execute proportional withdrawal
+        _executeWithdrawal(tier, sharesToBurn, totalShares[tier]);
+        
+        // Update positions
+        position.shares -= sharesToBurn;
+        totalShares[tier] -= sharesToBurn;
+        totalAssets[tier] -= withdrawalValue;
+        
+        emit TierWithdraw(msg.sender, tier, sharesToBurn, withdrawalValue);
+    }
+    
+    // ============================================================================
+    // TIER MANAGEMENT FUNCTIONS
+    // ============================================================================
+    
+    function _executeInvestment(IndexTier tier, uint256 usdcAmount) internal {
+        address[] memory tokens = tierTokens[tier];
+        
+        for(uint256 i = 0; i < tokens.length; i++) {
+            uint256 allocation = tierAllocations[tier][tokens[i]];
+            uint256 tokenAmount = (usdcAmount * allocation) / 10000;
+            
+            if(tokenAmount > 0) {
+                _swapUSDCToToken(tokens[i], tokenAmount);
             }
         }
-        
-        // Burn shares
-        shares[msg.sender] -= sharesToBurn;
-        totalShares -= sharesToBurn;
-        
-        uint256 withdrawalValue = (sharesToBurn * getUnitPrice()) / 1e18;
-        emit Withdraw(msg.sender, sharesToBurn, withdrawalValue);
     }
     
-    function getUnitPrice() public view override returns (uint256) {
-        if(totalShares == 0) return 1e18; // Initial price = 1.0 USDC
+    function _calculateShares(IndexTier tier, uint256 usdcValue) internal view returns (uint256) {
+        if(totalShares[tier] == 0) {
+            return usdcValue; // 1:1 for first deposit
+        }
         
-        uint256 totalValue = getTotalPortfolioValue();
-        return (totalValue * 1e18) / totalShares;
+        uint256 tierNAV = getTierNAV(tier);
+        return (usdcValue * totalShares[tier]) / tierNAV;
     }
     
-    function getTotalPortfolioValue() public view override returns (uint256) {
+    function getTierNAV(IndexTier tier) public view returns (uint256) {
         uint256 totalValue = 0;
+        address[] memory tokens = tierTokens[tier];
         
-        // Add value of all index tokens
-        for(uint256 i = 0; i < indexTokens.length; i++) {
-            if(indexTokens[i].isActive) {
-                address token = indexTokens[i].token;
-                uint256 balance = IERC20(token).balanceOf(address(this));
-                
-                if(balance > 0) {
-                    uint256 price = aggregator.getRate(token, STABLE_COIN);
-                    totalValue += (balance * price) / 1e18;
-                }
-            }
+        for(uint256 i = 0; i < tokens.length; i++) {
+            uint256 balance = IERC20(tokens[i]).balanceOf(address(this));
+            uint256 price = _getTokenPrice(tokens[i]);
+            totalValue += (balance * price) / 1e18;
         }
-        
-        // Add stablecoin balance (hedge amount)
-        totalValue += IERC20(STABLE_COIN).balanceOf(address(this));
         
         return totalValue;
     }
     
     // ============================================================================
-    // INDEX MANAGEMENT
+    // TIER COMPARISON FUNCTIONS
     // ============================================================================
     
-    function executeIndexPurchase(uint256 usdcAmount) public override onlyAutoManager {
-        // Calculate allocation amounts
-        uint256 hedgeAmount = usdcAmount.percentage(currentHedgeLevel);
-        uint256 investAmount = usdcAmount - hedgeAmount;
+    function compareTiers() external view returns (
+        string[] memory names,
+        uint256[] memory tokenCounts,
+        uint256[] memory riskLevels,
+        uint256[] memory fees,
+        uint256[] memory navs,
+        uint256[] memory returns
+    ) {
+        names = new string[](3);
+        tokenCounts = new uint256[](3);
+        riskLevels = new uint256[](3);
+        fees = new uint256[](3);
+        navs = new uint256[](3);
+        returns = new uint256[](3);
         
-        if(investAmount > 0) {
-            _distributeToIndexTokens(investAmount);
+        for(uint256 i = 0; i < 3; i++) {
+            IndexTier tier = IndexTier(i);
+            TierConfig memory config = tierConfigs[tier];
+            
+            names[i] = config.name;
+            tokenCounts[i] = config.tokenCount;
+            riskLevels[i] = config.riskLevel;
+            fees[i] = config.managementFee;
+            navs[i] = getTierNAV(tier);
+            returns[i] = _calculate30DayReturn(tier);
         }
-        
-        // Keep hedge amount in stablecoin (already in USDC)
     }
     
-    function _distributeToIndexTokens(uint256 usdcAmount) internal {
-        for(uint256 i = 0; i < indexTokens.length; i++) {
-            if(indexTokens[i].isActive) {
-                uint256 tokenAmount = usdcAmount.percentage(indexTokens[i].allocation);
-                
-                if(tokenAmount > 0) {
-                    _swapUSDCToToken(indexTokens[i].token, tokenAmount);
-                }
+    function getUserPortfolio(address user) external view returns (
+        IndexTier[] memory tiers,
+        uint256[] memory shares,
+        uint256[] memory values,
+        uint256[] memory allocations
+    ) {
+        // Count user's active positions
+        uint256 activePositions = 0;
+        for(uint256 i = 0; i < 3; i++) {
+            if(userPositions[user][IndexTier(i)].shares > 0) {
+                activePositions++;
             }
         }
-    }
-    
-    function _swapUSDCToToken(address token, uint256 usdcAmount) internal {
-        if(token == STABLE_COIN) return; // No swap needed
         
-        address[] memory path = new address[](2);
-        path[0] = STABLE_COIN;
-        path[1] = token;
+        tiers = new IndexTier[](activePositions);
+        shares = new uint256[](activePositions);
+        values = new uint256[](activePositions);
+        allocations = new uint256[](activePositions);
         
-        IERC20(STABLE_COIN).approve(address(router), usdcAmount);
+        uint256 index = 0;
+        uint256 totalValue = 0;
         
-        router.swapExactTokensForTokens(
-            usdcAmount,
-            0, // Accept any amount of tokens out
-            path,
-            address(this),
-            block.timestamp + 300
-        );
-    }
-    
-    function _convertToUSDC(address inputToken, uint256 amount) internal returns (uint256) {
-        if(inputToken == STABLE_COIN) {
-            IERC20(inputToken).transferFrom(msg.sender, address(this), amount);
-            return amount;
-        }
-        
-        address[] memory path = new address[](2);
-        path[0] = inputToken;
-        path[1] = STABLE_COIN;
-        
-        IERC20(inputToken).approve(address(router), amount);
-        
-        uint256[] memory amounts = router.swapExactTokensForTokens(
-            amount,
-            0,
-            path,
-            address(this),
-            block.timestamp + 300
-        );
-        
-        return amounts[1]; // Return USDC amount received
-    }
-    
-    // ============================================================================
-    // ADMIN FUNCTIONS
-    // ============================================================================
-    
-    function _initializeTokens(
-        address[] memory tokens,
-        uint256[] memory allocations
-    ) internal {
-        require(tokens.length == allocations.length, "Array length mismatch");
-        
-        uint256 totalAllocation = 0;
-        for(uint256 i = 0; i < tokens.length; i++) {
-            indexTokens.push(TokenInfo({
-                token: tokens[i],
-                allocation: allocations[i],
-                currentBalance: 0,
-                isActive: true
-            }));
+        // First pass: collect data and calculate total
+        for(uint256 i = 0; i < 3; i++) {
+            IndexTier tier = IndexTier(i);
+            UserPosition memory position = userPositions[user][tier];
             
-            isIndexToken[tokens[i]] = true;
-            tokenIndex[tokens[i]] = i;
-            totalAllocation += allocations[i];
+            if(position.shares > 0) {
+                tiers[index] = tier;
+                shares[index] = position.shares;
+                values[index] = _calculateUserValue(tier, user);
+                totalValue += values[index];
+                index++;
+            }
         }
         
-        require(totalAllocation == 10000, "Total allocation must be 100%");
-    }
-    
-    function addToken(address token, uint256 allocation) external onlyOwner {
-        require(!isIndexToken[token], "Token already exists");
-        require(allocation > 0, "Zero allocation");
-        
-        indexTokens.push(TokenInfo({
-            token: token,
-            allocation: allocation,
-            currentBalance: 0,
-            isActive: true
-        }));
-        
-        isIndexToken[token] = true;
-        tokenIndex[token] = indexTokens.length - 1;
-        
-        emit TokenAdded(token, allocation);
-    }
-    
-    function updateTokenAllocation(address token, uint256 newAllocation) external onlyOwner {
-        require(isIndexToken[token], "Token not in index");
-        
-        uint256 index = tokenIndex[token];
-        indexTokens[index].allocation = newAllocation;
-    }
-    
-    function setAutoManager(address _autoManager) external onlyOwner {
-        autoManager = _autoManager;
-    }
-    
-    function mintFeeShares(address to, uint256 feeAmount) external override onlyAutoManager {
-        uint256 currentPrice = getUnitPrice();
-        uint256 sharesToMint = (feeAmount * 1e18) / currentPrice;
-        
-        shares[to] += sharesToMint;
-        totalShares += sharesToMint;
-    }
-    
-    function pause() external onlyOwner {
-        emergencyPaused = true;
-    }
-    
-    function unpause() external onlyOwner {
-        emergencyPaused = false;
+        // Second pass: calculate allocations
+        for(uint256 i = 0; i < activePositions; i++) {
+            allocations[i] = totalValue > 0 ? (values[i] * 10000) / totalValue : 0;
+        }
     }
     
     // ============================================================================
-    // VIEW FUNCTIONS
+    // TIER CONFIGURATION & ADMIN
     // ============================================================================
     
-    function getIndexTokens() external view returns (TokenInfo[] memory) {
-        return indexTokens;
+    function updateTierTokens(
+        IndexTier tier,
+        address[] memory newTokens,
+        uint256[] memory newAllocations
+    ) external onlyOwner {
+        require(newTokens.length == newAllocations.length, "Array length mismatch");
+        require(newTokens.length <= tierConfigs[tier].tokenCount, "Too many tokens");
+        
+        // Validate allocations sum to 100%
+        uint256 totalAllocation = 0;
+        for(uint256 i = 0; i < newAllocations.length; i++) {
+            totalAllocation += newAllocations[i];
+        }
+        require(totalAllocation == 10000, "Allocations must sum to 100%");
+        
+        // Clear existing tokens
+        delete tierTokens[tier];
+        
+        // Set new tokens and allocations
+        for(uint256 i = 0; i < newTokens.length; i++) {
+            tierTokens[tier].push(newTokens[i]);
+            tierAllocations[tier][newTokens[i]] = newAllocations[i];
+        }
+        
+        emit TierRebalanced(tier, newTokens, newAllocations);
     }
     
-    function getUserShares(address user) external view returns (uint256) {
-        return shares[user];
+    function updateTierConfig(
+        IndexTier tier,
+        TierConfig memory newConfig
+    ) external onlyOwner {
+        tierConfigs[tier] = newConfig;
+        emit TierConfigUpdated(tier, newConfig);
     }
     
-    function getUserValue(address user) external view returns (uint256) {
-        if(totalShares == 0) return 0;
-        return (shares[user] * getTotalPortfolioValue()) / totalShares;
+    // ============================================================================
+    // VIEW FUNCTIONS FOR UI
+    // ============================================================================
+    
+    function getTierInfo(IndexTier tier) external view returns (
+        TierConfig memory config,
+        address[] memory tokens,
+        uint256[] memory allocations,
+        uint256 nav,
+        uint256 totalShares_,
+        uint256 return30d
+    ) {
+        config = tierConfigs[tier];
+        tokens = tierTokens[tier];
+        
+        allocations = new uint256[](tokens.length);
+        for(uint256 i = 0; i < tokens.length; i++) {
+            allocations[i] = tierAllocations[tier][tokens[i]];
+        }
+        
+        nav = getTierNAV(tier);
+        totalShares_ = totalShares[tier];
+        return30d = _calculate30DayReturn(tier);
     }
     
-    function getCurrentHedgeLevel() external view returns (uint256) {
-        return currentHedgeLevel;
+    function getTierPerformanceMetrics(IndexTier tier) external view returns (
+        uint256 nav,
+        uint256 return1d,
+        uint256 return7d,
+        uint256 return30d,
+        uint256 volatility,
+        uint256 sharpeRatio
+    ) {
+        nav = getTierNAV(tier);
+        return1d = _calculate1DayReturn(tier);
+        return7d = _calculate7DayReturn(tier);
+        return30d = _calculate30DayReturn(tier);
+        volatility = _calculateVolatility(tier);
+        sharpeRatio = _calculateSharpeRatio(tier);
     }
+    
+    function getRecommendedTier(
+        address user,
+        uint256 investmentAmount,
+        uint256 riskTolerance  // 1-10 scale
+    ) external view returns (
+        IndexTier recommendedTier,
+        string memory reasoning
+    ) {
+        // Simple recommendation logic
+        if(riskTolerance <= 4 && investmentAmount >= tierConfigs[IndexTier.CONSERVATIVE_10].minDeposit) {
+            return (IndexTier.CONSERVATIVE_10, "Conservative investor with preference for stability");
+        } else if(riskTolerance <= 7 && investmentAmount >= tierConfigs[IndexTier.BALANCED_100].minDeposit) {
+            return (IndexTier.BALANCED_100, "Balanced approach with moderate diversification");
+        } else if(investmentAmount >= tierConfigs[IndexTier.AGGRESSIVE_300].minDeposit) {
+            return (IndexTier.AGGRESSIVE_300, "High growth potential with maximum diversification");
+        } else {
+            return (IndexTier.CONSERVATIVE_10, "Start with conservative tier and upgrade later");
+        }
+    }
+    
+    // ============================================================================
+    // HELPER FUNCTIONS
+    // ============================================================================
+    
+    function _calculateUserValue(IndexTier tier, address user) internal view returns (uint256) {
+        UserPosition memory position = userPositions[user][tier];
+        if(position.shares == 0) return 0;
+        
+        uint256 tierNAV = getTierNAV(tier);
+        return (position.shares * tierNAV) / totalShares[tier];
+    }
+    
+    function _calculate30DayReturn(IndexTier tier) internal view returns (uint256) {
+        // Simplified return calculation
+        // In practice, you'd track historical NAV values
+        return 850; // 8.5% (placeholder)
+    }
+    
+    function _calculate7DayReturn(IndexTier tier) internal view returns (uint256) {
+        return 150; // 1.5% (placeholder)
+    }
+    
+    function _calculate1DayReturn(IndexTier tier) internal view returns (uint256) {
+        return 25; // 0.25% (placeholder)
+    }
+    
+    function _calculateVolatility(IndexTier tier) internal view returns (uint256) {
+        // Return volatility as basis points
+        if(tier == IndexTier.CONSERVATIVE_10) return 1500;  // 15%
+        if(tier == IndexTier.BALANCED_100) return 2500;     // 25%
+        return 3500; // 35% for aggressive
+    }
+    
+    function _calculateSharpeRatio(IndexTier tier) internal view returns (uint256) {
+        // Return Sharpe ratio * 100
+        if(tier == IndexTier.CONSERVATIVE_10) return 180;   // 1.8
+        if(tier == IndexTier.BALANCED_100) return 220;      // 2.2
+        return 190; // 1.9 for aggressive
+    }
+    
+    // Placeholder functions - implement with actual DEX integration
+    function _convertToUSDC(address token, uint256 amount) internal returns (uint256) {
+        // Implementation needed
+        return amount;
+    }
+    
+    function _swapUSDCToToken(address token, uint256 amount) internal {
+        // Implementation needed
+    }
+    
+    function _getTokenPrice(address token) internal view returns (uint256) {
+        // Implementation needed
+        return 1e18;
+    }
+    
+    function _executeWithdrawal(IndexTier tier, uint256 shares, uint256 totalShares_) internal {
+        // Implementation needed
+    }
+    
+    function _calculateWithdrawalValue(IndexTier tier, uint256 shares) internal view returns (uint256) {
+        // Implementation needed
+        return (shares * getTierNAV(tier)) / totalShares[tier];
+    }
+    
+    modifier onlyOwner() {
+        require(msg.sender == owner, "Not owner");
+        _;
+    }
+    
+    address public owner;
 }
