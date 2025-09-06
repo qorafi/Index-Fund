@@ -2,7 +2,8 @@
 
 <p align="center">
 
-![index-fund](https://github.com/user-attachments/assets/a7cbd646-60be-4d27-932a-77f1d71dd8b8)
+![index-fund](https://github.com/user-attachments/assets/197fcfcd-fff2-492e-ae17-f27536b31dd4)
+
 
 </p>
 
